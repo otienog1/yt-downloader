@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">YouTube Downloader</h1>
+
+        <!-- Download Form -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <form id="downloadForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">YouTube URL</label>
+                    <input type="url" id="url" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+
+                <div class="flex space-x-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Resolution</label>
+                        <select id="resolution"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <option value="1080">1080p</option>
+                            <option value="720">720p</option>
+                            <option value="480">480p</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Format</label>
+                        <select id="format"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                            <option value="video">Video + Audio</option>
+                            <option value="audio">Audio Only (MP3)</option>
+                            <option value="video_only">Video Only</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="playlist" class="rounded text-indigo-600">
+                        <span class="ml-2 text-sm text-gray-700">Download Playlist</span>
+                    </label>
+
+                    <label class="flex items-center">
+                        <input type="checkbox" id="subtitles" class="rounded text-indigo-600">
+                        <span class="ml-2 text-sm text-gray-700">Download Subtitles</span>
+                    </label>
+                </div>
+
+                <button type="submit"
+                    class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Start Download
+                </button>
+            </form>
+        </div>
+
+        <!-- Active Downloads -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 class="text-xl font-semibold mb-4">Active Downloads</h2>
+            <div id="activeDownloads" class="space-y-4">
+                <!-- Downloads will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Completed Downloads -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold mb-4">Completed Downloads</h2>
+            <div id="completedDownloads" class="space-y-4">
+                <!-- Completed downloads will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Helper function to create a download item element
+        function createDownloadItem(download) {
+            const div = document.createElement('div');
+            div.className = 'border rounded-lg p-4';
+
+            const status = download.status === 'downloading'
+                ? `${download.progress.toFixed(1)}% - ${download.speed}`
+                : download.status;
+
+            div.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="font-medium">${download.url}</p>
+                        <p class="text-sm text-gray-500">${status}</p>
+                    </div>
+                    ${download.status === 'completed' && download.filename
+                    ? `<a href="/downloads/${download.filename}"
+                             class="text-indigo-600 hover:text-indigo-900">Download</a>`
+                    : ''}
+                </div>
+                ${download.status === 'downloading' ? `
+                    <div class="mt-2 w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-indigo-600 h-2.5 rounded-full"
+                             style="width: ${download.progress}%"></div>
+                    </div>
+                ` : ''}
+            `;
+
+            return div;
+        }
+
+        // Update downloads display
+        function updateDownloads() {
+            fetch('/api/downloads')
+                .then(response => response.json())
+                .then(data => {
+                    const activeDiv = document.getElementById('activeDownloads');
+                    const completedDiv = document.getElementById('completedDownloads');
+
+                    activeDiv.innerHTML = '';
+                    completedDiv.innerHTML = '';
+                    data.active.forEach(download => {
+                        activeDiv.appendChild(createDownloadItem(download));
+                    });
+                    data.completed.forEach(download => {
+                        completedDiv.appendChild(createDownloadItem(download));
+                    });
+                });
+        }
+
+        // Event listener for form submission
+        document.getElementById('downloadForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            const url = document.getElementById('url').value;
+            const resolution = document.getElementById('resolution').value;
+            const format = document.getElementById('format').value;
+            const playlist = document.getElementById('playlist').checked;
+            const subtitles = document.getElementById('subtitles').checked;
+
+            // Send download request to the server
+            fetch('/api/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ url, resolution, format, playlist, subtitles }),
+            })
+                .then(response => response.json())
+                .then(data => {
+                    // Optionally handle the response
+                    console.log(data);
+                    updateDownloads(); // Refresh the downloads list
+                });
+        });
+
+        // Initial call to update downloads
+        updateDownloads();
+    </script>
+</body>
+
+</html>
