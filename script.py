@@ -16,6 +16,17 @@ import os
 
 
 @dataclass
+class VideoInfo:
+    title: str
+    thumbnail: str
+    duration: int
+    formats: List[Dict]
+    description: str
+    channel: str
+    view_count: int
+
+
+@dataclass
 class DownloadTask:
     url: str
     status: str
@@ -37,6 +48,99 @@ class DownloadManager:
         self.max_concurrent_downloads = 3
         self.active_threads = []
         self.start_worker_threads()
+
+    def _format_filesize(self, bytes_: Optional[int]) -> Optional[str]:
+        if bytes_ is None:
+            return None
+
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if bytes_ < 1024:
+                return f"{bytes_:.1f} {unit}"
+            bytes_ /= 1024
+        return f"{bytes_:.1f} TB"
+
+    def get_video_info(self, url: str) -> VideoInfo:
+        """Fetch video information before downloading."""
+        if not self._validate_url(url):
+            raise ValueError("Invalid YouTube URL")
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                # Process and categorize formats
+                video_formats = []
+                audio_formats = []
+                combined_formats = []
+
+                # Debug: Print all available formats
+                logging.info("All available formats:")
+                for f in info.get('formats', []):
+                    logging.info(f"Format: {f.get('format_id')} - "
+                                 f"vcodec: {f.get('vcodec')} - "
+                                 f"acodec: {f.get('acodec')} - "
+                                 f"height: {f.get('height')} - "
+                                 f"ext: {f.get('ext')}")
+
+                    format_info = {
+                        'format_id': f.get('format_id'),
+                        'ext': f.get('ext'),
+                        'filesize': self._format_filesize(f.get('filesize')),
+                        'format_note': f.get('format_note', ''),
+                        'quality': f.get('quality', 0),
+                        'vcodec': f.get('vcodec'),
+                        'acodec': f.get('acodec'),
+                        'width': f.get('width'),
+                        'height': f.get('height'),
+                        'fps': f.get('fps'),
+                        'abr': f.get('abr'),  # audio bitrate
+                        'vbr': f.get('vbr'),  # video bitrate
+                    }
+
+                    # Modified format categorization
+                    if f.get('acodec') != 'none' and f.get('vcodec') != 'none':
+                        # Check if it's a real combined format (not just a format string)
+                        if not f.get('format_id').endswith('+'):
+                            combined_formats.append(format_info)
+                    elif f.get('vcodec') != 'none':
+                        video_formats.append(format_info)
+                    elif f.get('acodec') != 'none':
+                        audio_formats.append(format_info)
+
+                # Sort formats by quality
+                video_formats.sort(key=lambda x: (x['height'] or 0, x['fps'] or 0), reverse=True)
+                audio_formats.sort(key=lambda x: x['abr'] or 0, reverse=True)
+                combined_formats.sort(key=lambda x: (x['height'] or 0, x['fps'] or 0), reverse=True)
+
+                # Debug: Print categorized formats
+                logging.info(f"Found {len(combined_formats)} combined formats")
+                logging.info(f"Found {len(video_formats)} video-only formats")
+                logging.info(f"Found {len(audio_formats)} audio-only formats")
+
+                all_formats = {
+                    'video_only': video_formats,
+                    'audio_only': audio_formats,
+                    'combined': combined_formats
+                }
+
+                return VideoInfo(
+                    title=info.get('title', ''),
+                    thumbnail=info.get('thumbnail', ''),
+                    duration=info.get('duration', 0),
+                    formats=all_formats,
+                    description=info.get('description', ''),
+                    channel=info.get('channel', ''),
+                    view_count=info.get('view_count', 0)
+                )
+        except Exception as e:
+            logging.error(f"Error fetching video info: {str(e)}")
+            raise
 
     def start_worker_threads(self):
         for _ in range(self.max_concurrent_downloads):
@@ -86,7 +190,8 @@ class DownloadManager:
         self.download_queue.put(task)
         return url
 
-    def _validate_url(self, url: str) -> bool:
+    @staticmethod
+    def _validate_url(url: str) -> bool:
         youtube_regex = r"^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$"
         return bool(re.match(youtube_regex, url))
 
@@ -115,7 +220,7 @@ class VideoDownloader:
             "writesubtitles": True,
             "writeautomaticsub": True,
             "subtitlesformat": "srt",
-            "ratelimit": 1000000,  # 1MB/s
+            "ratelimit": 5000000,  # 5MB/s
             "postprocessors": [
                 {
                     "key": "FFmpegMetadata",
@@ -150,13 +255,13 @@ class VideoDownloader:
         return f"{bytes_num:.1f} TB"
 
     def download_video(
-        self,
-        url: str,
-        resolution="1080",
-        audio_only=False,
-        video_only=False,
-        playlist=False,
-        subtitle_langs=None,
+            self,
+            url: str,
+            resolution="1080",
+            audio_only=False,
+            video_only=False,
+            playlist=False,
+            subtitle_langs=None,
     ):
         try:
             # Configure format based on options
@@ -226,6 +331,28 @@ download_manager = DownloadManager()
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/video-info", methods=["POST"])
+def get_video_info():
+    try:
+        data = request.get_json()
+        url = data["url"]
+        video_info = download_manager.get_video_info(url)
+        return jsonify({
+            "status": "success",
+            "data": {
+                "title": video_info.title,
+                "thumbnail": video_info.thumbnail,
+                "duration": video_info.duration,
+                "formats": video_info.formats,
+                "description": video_info.description,
+                "channel": video_info.channel,
+                "view_count": video_info.view_count
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 
 @app.route("/api/download", methods=["POST"])
