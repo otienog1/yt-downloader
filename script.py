@@ -13,6 +13,7 @@ from flask import Flask, request, jsonify, render_template, send_from_directory
 import logging
 from datetime import datetime
 import os
+from flask_cors import CORS
 
 
 @dataclass
@@ -325,6 +326,9 @@ class VideoDownloader:
 
 # Flask Application
 app = Flask(__name__, template_folder="views")
+
+CORS(app)
+
 download_manager = DownloadManager()
 
 

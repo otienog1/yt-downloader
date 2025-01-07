@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 yt-dlp = "*"
 flask = "*"
+flask-cors = "*"
 
 [dev-packages]
 
